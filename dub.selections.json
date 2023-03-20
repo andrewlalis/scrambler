@@ -1,0 +1,8 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"botan": "1.13.4",
+		"botan-math": "1.0.4",
+		"memutils": "1.0.9"
+	}
+}

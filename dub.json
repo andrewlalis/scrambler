@@ -1,0 +1,12 @@
+{
+	"authors": [
+		"Andrew Lalis"
+	],
+	"copyright": "Copyright © 2023, Andrew Lalis",
+	"dependencies": {
+		"botan": "~>1.13.4"
+	},
+	"description": "Tool for encrypting and decrypting entire directories on-the-fly.",
+	"license": "MIT",
+	"name": "scrambler"
+}
