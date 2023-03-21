@@ -2,13 +2,31 @@ module cipher_utils;
 
 import botan.block.block_cipher : BlockCipher;
 import std.stdio;
+import std.file;
 
-public void encryptFile(string filename, string outputFilename, BlockCipher cipher, ref ubyte[] buffer) {
+public const string ENCRYPTED_SUFFIX = ".enc";
+
+public void encryptFile(string filename, string outputFilename, BlockCipher cipher, ref ubyte[] buffer, bool verbose) {
     assert(buffer.length == cipher.blockSize, "Buffer length must match cipher block size.");
+    if (verbose) {
+        writefln!"Encrypting file \"%s\" of %d bytes to \"%s\" using cipher %s."(
+            filename,
+            getSize(filename),
+            outputFilename,
+            cipher.name
+        );
+    }
     File fIn = File(filename, "rb");
     File fOut = File(outputFilename, "wb");
     // First, write one block containing the file's size.
     writeSizeBytes(buffer, fIn.size);
+    // Fill the rest of the block with an incrementing series of bytes, so we can easily validate decryption.
+    if (buffer.length > 8) {
+        ubyte marker = 1;
+        for (size_t i = 8; i < buffer.length; i++) {
+            buffer[i] = marker++;
+        }
+    }
     cipher.encrypt(buffer);
     fOut.rawWrite(buffer);
     // Then write the rest of the file.
@@ -18,17 +36,49 @@ public void encryptFile(string filename, string outputFilename, BlockCipher ciph
     }
     fIn.close();
     fOut.close();
+    if (verbose) {
+        writefln!"  Encrypted file has a size of %d bytes."(getSize(outputFilename));
+    }
 }
 
-public void decryptFile(string filename, string outputFilename, BlockCipher cipher, ref ubyte[] buffer) {
+public bool decryptFile(string filename, string outputFilename, BlockCipher cipher, ref ubyte[] buffer, bool verbose) {
     assert(buffer.length == cipher.blockSize, "Buffer length must match cipher block size.");
+    if (verbose) {
+        writefln!"Decrypting file \"%s\" of %d bytes to \"%s\" using cipher %s."(
+            filename,
+            getSize(filename),
+            outputFilename,
+            cipher.name
+        );
+    }
     File fIn = File(filename, "rb");
-    File fOut = File(outputFilename, "wb");
     // First, read one block containing the file's size.
     fIn.rawRead(buffer);
     cipher.decrypt(buffer);
+    // Verify the sequence of values to ensure decryption was successful.
+    if (buffer.length > 8) {
+        ubyte expectedMarker = 1;
+        for (size_t i = 8; i < buffer.length; i++) {
+            if (buffer[i] != expectedMarker) {
+                if (verbose) {
+                    writefln!"  Decryption validation failed. Expected byte at index %d to be %d, but got %d."(
+                        i,
+                        expectedMarker,
+                        buffer[i]
+                    );
+                }
+                fIn.close();
+                return false;
+            }
+            expectedMarker++;
+        }
+    }
     ulong size = readSizeBytes(buffer);
+    if (verbose) {
+        writefln!"  Original file had size of %d bytes."(size);
+    }
     ulong bytesWritten = 0;
+    File fOut = File(outputFilename, "wb");
     // Then read the rest of the file.
     foreach (ubyte[] chunk; fIn.byChunk(buffer)) {
         cipher.decrypt(buffer);
@@ -41,27 +91,48 @@ public void decryptFile(string filename, string outputFilename, BlockCipher ciph
     }
     fIn.close();
     fOut.close();
+    if (verbose) {
+        writefln!"  Decrypted file has a size of %d bytes."(getSize(outputFilename));
+    }
+    return true;
+}
+
+union LongByteArrayUnion {
+    ulong longValue;
+    ubyte[8] bytes;
 }
 
 private void writeSizeBytes(ref ubyte[] bytes, ulong size) {
-    assert(bytes.length >= 4, "Array length must be at least 4.");
-    bytes[0] = size & 0xFF;
-    bytes[1] = (size << 8) & 0xFF;
-    bytes[2] = (size << 16) & 0xFF;
-    bytes[3] = (size << 24) & 0xFF;
-    if (bytes.length > 4) {
-        for (size_t i = 4; i < bytes.length; i++) {
+    assert(bytes.length >= 8, "Array length must be at least 8.");
+    LongByteArrayUnion u;
+    u.longValue = size;
+    for (size_t i = 0; i < 8; i++) bytes[i] = u.bytes[i];
+    if (bytes.length > 8) {
+        for (size_t i = 8; i < bytes.length; i++) {
             bytes[i] = 0;
         }
     }
 }
 
 private ulong readSizeBytes(ref ubyte[] bytes) {
-    assert(bytes.length >= 4, "Array length must be at least 4.");
-    ulong size = 0;
-    size += bytes[0];
-    size += bytes[1] << 8;
-    size += bytes[2] << 16;
-    size += bytes[3] << 24;
-    return size;
+    assert(bytes.length >= 8, "Array length must be at least 8.");
+    LongByteArrayUnion u;
+    for (size_t i = 0; i < 8; i++) u.bytes[i] = bytes[i];
+    return u.longValue;
+}
+
+unittest {
+    ubyte[] buffer = new ubyte[16];
+
+    void doAssert(ulong size) {
+        import std.format;
+        writeSizeBytes(buffer, size);
+        ulong r = readSizeBytes(buffer);
+        assert(r == size, format!"Value read: %d does not match expected: %d."(r, size));
+    }
+    
+    doAssert(0);
+    doAssert(1);
+    doAssert(42);
+    doAssert(74_092_382_742_030);
 }

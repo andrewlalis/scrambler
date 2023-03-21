@@ -1,5 +1,7 @@
 module cli_utils;
 
+import cipher_utils : ENCRYPTED_SUFFIX;
+
 enum Action {
 	ENCRYPT,
 	DECRYPT
@@ -10,6 +12,7 @@ struct Params {
 	string target = ".";
 	bool recursive = false;
 	bool verbose = false;
+	string passphraseFile = null;
 }
 
 int parseParams(string[] args, ref Params params) {
@@ -24,18 +27,11 @@ int parseParams(string[] args, ref Params params) {
 		"recursive|r", &params.recursive,
 		"verbose|v", &params.verbose,
 		"encrypt|e", &isEncrypting,
-		"decrypt|d", &isDecrypting
+		"decrypt|d", &isDecrypting,
+		"passphrase-file|p", &params.passphraseFile
 	);
 	if (isEncrypting && isDecrypting) {
 		stderr.writeln("Invalid arguments: Cannot specify both the --encrypt and --decrypt flags.");
-	}
-	if (isEncrypting) {
-		params.action = Action.ENCRYPT;
-	} else if (isDecrypting) {
-		params.action = Action.DECRYPT;
-	} else {
-		writeln("Determining if we should encrypt or decrypt");
-		params.action = Action.ENCRYPT;
 	}
 
 	if (args.length > 1) {
@@ -45,7 +41,31 @@ int parseParams(string[] args, ref Params params) {
 			return 1;
 		}
 	}
+
+	if (isEncrypting) {
+		params.action = Action.ENCRYPT;
+	} else if (isDecrypting) {
+		params.action = Action.DECRYPT;
+	} else {
+		params.action = determineBestAction(params.target);
+	}
 	return 0;
+}
+
+Action determineBestAction(string target) {
+	import std.file;
+	import std.algorithm : endsWith;
+
+	if (isFile(target)) {
+		return endsWith(target, ENCRYPTED_SUFFIX) ? Action.DECRYPT : Action.ENCRYPT;
+	} else if (isDir(target)) {
+		foreach (DirEntry entry; dirEntries(target, SpanMode.breadth, false)) {
+			if (entry.isFile && endsWith(entry.name, ENCRYPTED_SUFFIX)) return Action.DECRYPT;
+		}
+		return Action.ENCRYPT;
+	} else {
+		return Action.ENCRYPT;
+	}
 }
 
 void printUsage() {
@@ -60,6 +80,9 @@ The following options are available:
                            directory.
   -d | --decrypt         Do a decryption operation on the target file or
                            directory.
+  -p | --passphrase-file A file to read the passphrase from, instead of
+                           prompting the user for a passphrase in the command
+						   line.
   -r | --recursive       Recursively encrypt/decrypt nested directories.
   -v | --verbose         Show verbose output during runtime.
   -s | --no-suffix       Do not add the ".enc" suffix to files.
@@ -67,8 +90,7 @@ The following options are available:
 Encrypted files are suffixed with ".enc" to indicate that they're encrypted and
 cannot be read as usual. If neither --encrypt nor --decrypt flags are provided,
 Scrambler will try to determine which operation to do based on the presence of
-".enc" file(s) at the target location. It's recommended that you always do
-provide an explicit --encrypt or --decrypt flag.
+".enc" file(s) at the target location.
 HELP");
 }
 
