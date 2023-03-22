@@ -1,5 +1,5 @@
 # scrambler
-Tool for encrypting and decrypting entire directories on-the-fly.
+A tool for encrypting and decrypting entire directories on-the-fly.
 
 scrambler uses a block cipher and passphrase to encrypt and decrypt files in-place, as a means for quickly securing content without having to move things and/or create archives. scrambler appends a `.enc` extension to encrypted files, so it can use context clues to determine whether you want to perform encryption or decryption.
 

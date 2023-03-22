@@ -3,6 +3,7 @@ module cipher_utils;
 import botan.block.block_cipher : BlockCipher;
 import std.stdio;
 import std.file;
+import std.datetime.stopwatch;
 
 public const string ENCRYPTED_SUFFIX = ".enc";
 
@@ -16,6 +17,7 @@ public void encryptFile(string filename, string outputFilename, BlockCipher ciph
             cipher.name
         );
     }
+    StopWatch sw = StopWatch(AutoStart.yes);
     File fIn = File(filename, "rb");
     File fOut = File(outputFilename, "wb");
     // First, write one block containing the file's size.
@@ -36,8 +38,9 @@ public void encryptFile(string filename, string outputFilename, BlockCipher ciph
     }
     fIn.close();
     fOut.close();
+    sw.stop();
     if (verbose) {
-        writefln!"  Encrypted file has a size of %d bytes."(getSize(outputFilename));
+        writefln!"  Encrypted file in %d ms, new size %d bytes."(sw.peek().total!"msecs", getSize(outputFilename));
     }
 }
 
@@ -51,27 +54,15 @@ public bool decryptFile(string filename, string outputFilename, BlockCipher ciph
             cipher.name
         );
     }
+    StopWatch sw = StopWatch(AutoStart.yes);
     File fIn = File(filename, "rb");
     // First, read one block containing the file's size.
     fIn.rawRead(buffer);
     cipher.decrypt(buffer);
     // Verify the sequence of values to ensure decryption was successful.
-    if (buffer.length > 8) {
-        ubyte expectedMarker = 1;
-        for (size_t i = 8; i < buffer.length; i++) {
-            if (buffer[i] != expectedMarker) {
-                if (verbose) {
-                    writefln!"  Decryption validation failed. Expected byte at index %d to be %d, but got %d."(
-                        i,
-                        expectedMarker,
-                        buffer[i]
-                    );
-                }
-                fIn.close();
-                return false;
-            }
-            expectedMarker++;
-        }
+    if (buffer.length > 8 && !validateBufferDecryptionMarker(buffer[8..$], verbose)) {
+        fIn.close();
+        return false;
     }
     ulong size = readSizeBytes(buffer);
     if (verbose) {
@@ -91,8 +82,27 @@ public bool decryptFile(string filename, string outputFilename, BlockCipher ciph
     }
     fIn.close();
     fOut.close();
+    sw.stop();
     if (verbose) {
-        writefln!"  Decrypted file has a size of %d bytes."(getSize(outputFilename));
+        writefln!"  Decrypted file in %d ms, new size %d bytes."(sw.peek().total!"msecs", getSize(outputFilename));
+    }
+    return true;
+}
+
+private bool validateBufferDecryptionMarker(ubyte[] bufferSlice, bool verbose) {
+    ubyte expectedMarker = 1;
+    for (size_t i = 0; i < bufferSlice.length; i++) {
+        if (bufferSlice[i] != expectedMarker) {
+            if (verbose) {
+                writefln!"  Decryption validation failed. Expected byte at index %d to be %d, but got %d."(
+                    i,
+                    expectedMarker,
+                    bufferSlice[i]
+                );
+            }
+            return false;
+        }
+        expectedMarker++;
     }
     return true;
 }

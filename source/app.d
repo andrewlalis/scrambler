@@ -25,21 +25,9 @@ int main(string[] args) {
 		return result;
 	}
 
-	string passphrase;
-	if (params.passphraseFile !is null && exists(params.passphraseFile) && isFile(params.passphraseFile)) {
-		if (params.verbose) {
-			writefln!"Reading passphrase from \"%s\""(params.passphraseFile);
-		}
-		passphrase = readText(params.passphraseFile).strip();
-	} else {
-		write("Enter passphrase: ");
-		passphrase = readPassphrase();
-		writeln();
-	}
-	if (passphrase is null || passphrase.length == 0) {
-		stderr.writeln("Invalid or missing passphrase.");
-		return 2;
-	}
+	auto nullablePassphrase = getPassphrase(params);
+	if (nullablePassphrase.isNull) return 2;
+	string passphrase = nullablePassphrase.get();
 
 	HashFunction hash = new SHA256();
 	auto secureKeyVector = hash.process(passphrase);
@@ -53,7 +41,7 @@ int main(string[] args) {
 		} else {
 			bool success = decryptDir(params.target, cipher, buffer, params.recursive, params.verbose);
 			if (!success) {
-				stderr.writeln("Decryption failed.");
+				stderr.writeln("Decryption failed. The passphrase is probably incorrect.");
 				return 3;
 			}
 		}
@@ -63,7 +51,7 @@ int main(string[] args) {
 		} else {
 			bool success = decryptAndRemoveFile(params.target, cipher, buffer, params.verbose);
 			if (!success) {
-				stderr.writeln("Decryption failed.");
+				stderr.writeln("Decryption failed. The passphrase is probably incorrect.");
 				return 3;
 			}
 		}

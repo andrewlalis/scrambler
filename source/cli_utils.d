@@ -1,6 +1,7 @@
 module cli_utils;
 
 import cipher_utils : ENCRYPTED_SUFFIX;
+import std.typecons;
 
 enum Action {
 	ENCRYPT,
@@ -12,6 +13,7 @@ struct Params {
 	string target = ".";
 	bool recursive = false;
 	bool verbose = false;
+	bool noSuffix = false;
 	string passphraseFile = null;
 }
 
@@ -28,6 +30,7 @@ int parseParams(string[] args, ref Params params) {
 		"verbose|v", &params.verbose,
 		"encrypt|e", &isEncrypting,
 		"decrypt|d", &isDecrypting,
+		"no-suffix|s", &params.noSuffix,
 		"passphrase-file|p", &params.passphraseFile
 	);
 	if (isEncrypting && isDecrypting) {
@@ -52,7 +55,14 @@ int parseParams(string[] args, ref Params params) {
 	return 0;
 }
 
-Action determineBestAction(string target) {
+/** 
+ * Determines the most appropriate action to perform on a target file or
+ * directory, based on its contents.
+ * Params:
+ *   target = The target to check.
+ * Returns: Whether to encrypt or decrypt.
+ */
+private Action determineBestAction(string target) {
 	import std.file;
 	import std.algorithm : endsWith;
 
@@ -68,7 +78,10 @@ Action determineBestAction(string target) {
 	}
 }
 
-void printUsage() {
+/** 
+ * Prints a standard usage/help message to stdout.
+ */
+public void printUsage() {
     import std.stdio : writeln;
 	writeln(q"HELP
 Usage: scrambler [target] [options]
@@ -94,7 +107,39 @@ Scrambler will try to determine which operation to do based on the presence of
 HELP");
 }
 
-string readPassphrase() {
+public Nullable!string getPassphrase(Params params) {
+	import std.file;
+	import std.stdio;
+	import std.string : strip;
+	if (params.passphraseFile !is null && params.passphraseFile.length > 0) {
+		if (exists(params.passphraseFile) && isFile(params.passphraseFile)) {
+			if (params.verbose) {
+				writefln!"Reading passphrase from \"%s\""(params.passphraseFile);
+			}
+			return nullable(readText(params.passphraseFile).strip());
+		} else {
+			stderr.writefln!"Invalid or missing passphrase file: \"%s\""(params.passphraseFile);
+			return Nullable!string.init;
+		}
+	}
+
+	// No passphrase file specified, so read from stdin.
+	write("Enter passphrase: ");
+	string passphrase = readPassphrase();
+	writeln();
+	if (passphrase is null || passphrase.length == 0) {
+		stderr.writeln("Invalid or missing passphrase.");
+		return Nullable!string.init;
+	}
+	return nullable(passphrase);
+}
+
+/** 
+ * Reads a passphrase from stdin while disabling terminal echoing, so that the
+ * entered password does not appear.
+ * Returns: The passphrase string, or null if we could not securely read it.
+ */
+public string readPassphrase() {
     import std.stdio;
     import std.string : strip;
 	version(Posix) {
@@ -137,7 +182,7 @@ string readPassphrase() {
         SetConsoleMode(hIn, prev_con_mode);
 		return password;
 	} else {
-        stderr.writeln("Cannot securely read password from terminal.");
+        stderr.writeln("Cannot securely read password from terminal. Please supply a passphrase file with -p.");
 		return null;
 	}
 }
